@@ -1,0 +1,248 @@
+
+import { useState, useRef, useEffect } from "react";
+import axios from "axios";
+
+const API_BASE_URL = "http://127.0.0.1:8000/api";
+
+const App = () => {
+  const [symptoms, setSymptoms] = useState("");
+  const [result, setResult] = useState(null);
+  const [hospitals, setHospitals] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [searchLoading, setSearchLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [locError, setLocError] = useState("");
+  const [activeTab, setActiveTab] = useState("health");
+  const [latency, setLatency] = useState(null); // <--- NEW STATE FOR LATENCY
+  const abortControllerRef = useRef(null);
+
+  const switchTab = (tab) => {
+    setActiveTab(tab);
+    setResult(null);
+    setHospitals([]);
+    setSymptoms("");
+    setError("");
+    setLocError("");
+    setLatency(null); // Reset latency on tab switch
+  };
+
+  // --- PHASE 1: AI ASSESSMENT ---
+  const getAiAssessment = async () => {
+    if (!symptoms.trim()) {
+      setError("Please describe your symptoms first.");
+      return;
+    }
+
+    setLoading(true);
+    setError("");
+    setResult(null);
+    setHospitals([]);
+    setLatency(null);
+
+    const endpoint = activeTab === "mental" 
+      ? `${API_BASE_URL}/mental-health/analyze` 
+      : `${API_BASE_URL}/hospitals/nearby`;
+
+    try {
+      const response = await axios.post(endpoint, {
+        latitude: 0,
+        longitude: 0,
+        symptoms: symptoms
+      });
+
+      setResult(response.data.triage);
+      setLatency(response.data.latency_ms); // <--- CAPTURE LATENCY
+    } catch (err) {
+      setError("The AI engine is currently busy. Please try again.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // --- PHASE 2: IMPROVISED LOCATION SEARCH ---
+  const locateSpecialist = () => {
+    if (!navigator.geolocation) {
+      setLocError("GPS is not supported by your browser.");
+      return;
+    }
+
+    setSearchLoading(true);
+    setLocError("");
+
+    navigator.geolocation.getCurrentPosition(
+      async (pos) => {
+        await fetchNearbyFacilities(pos.coords.latitude, pos.coords.longitude);
+      },
+      async (err) => {
+        if (err.code === err.TIMEOUT || err.code === err.POSITION_UNAVAILABLE) {
+          setLocError("GPS unavailable. Attempting network location...");
+          await fetchNearbyFacilities(0, 0);
+        } else {
+          setSearchLoading(false);
+          setLocError("Location access denied. Please enable GPS.");
+        }
+      },
+      { timeout: 8000 }
+    );
+  };
+
+  const fetchNearbyFacilities = async (lat, lon) => {
+    const endpoint = activeTab === "mental" 
+      ? `${API_BASE_URL}/mental-health/analyze` 
+      : `${API_BASE_URL}/hospitals/nearby`;
+
+    try {
+      const response = await axios.post(endpoint, {
+        latitude: lat,
+        longitude: lon,
+        symptoms: symptoms
+      });
+      
+      setHospitals(response.data.hospitals || []);
+      setLatency(response.data.latency_ms); // <--- UPDATE LATENCY FOR SEARCH
+      
+      if (response.data.hospitals.length === 0) {
+        setLocError("No specialized facilities found in your immediate area.");
+      }
+    } catch (err) {
+      setLocError("Failed to connect to facility search service.");
+    } finally {
+      setSearchLoading(false);
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-gray-900 py-10 px-4 flex justify-center font-sans selection:bg-blue-200">
+      <div className="bg-white shadow-2xl rounded-3xl p-6 w-full max-w-2xl border-t-[12px] border-blue-600 transition-all duration-500">
+        
+        <header className="text-center mb-8">
+          <h1 className="text-4xl font-black text-gray-800 tracking-tight">
+            SmartHealth <span className="text-blue-600">AI</span>
+          </h1>
+          <p className="text-gray-400 text-[10px] font-bold uppercase tracking-widest mt-2">Professional Triage Engine</p>
+        </header>
+
+        <nav className="flex bg-gray-100 rounded-2xl p-1.5 mb-8 shadow-inner">
+          <button onClick={() => switchTab("health")} className={`flex-1 py-3 rounded-xl font-bold text-sm transition-all ${activeTab === "health" ? "bg-white text-blue-600 shadow-sm" : "text-gray-500"}`}>Physical Health</button>
+          <button onClick={() => switchTab("mental")} className={`flex-1 py-3 rounded-xl font-bold text-sm transition-all ${activeTab === "mental" ? "bg-white text-purple-600 shadow-sm" : "text-gray-500"}`}>Mental Health</button>
+        </nav>
+
+        <textarea
+          className="w-full border-2 border-gray-100 rounded-2xl p-5 focus:ring-8 focus:ring-blue-50 outline-none transition-all resize-none text-gray-700 font-medium leading-relaxed"
+          placeholder={activeTab === "mental" ? "Describe your emotional well-being..." : "Describe symptoms (e.g., sharp abdominal pain, bloating)..."}
+          rows={5} 
+          value={symptoms} 
+          onChange={(e) => setSymptoms(e.target.value)}
+        />
+
+        <button 
+          onClick={getAiAssessment} 
+          disabled={loading} 
+          className="mt-6 w-full py-5 rounded-2xl font-black text-white bg-blue-600 hover:bg-blue-700 shadow-xl disabled:bg-gray-400 transition-all active:scale-95"
+        >
+          {loading ? "PROCESSING AI TRIAGE..." : "GET AI ASSESSMENT"}
+        </button>
+
+        {error && <div className="bg-red-50 text-red-600 p-4 rounded-2xl mt-6 text-sm font-bold border-2 border-red-100 text-center">{error}</div>}
+
+        {result && (
+          <div className="mt-10 space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-700">
+            
+            {/* Urgency Alert */}
+            {(result.urgency === 'High' || result.emergency) && (
+              <div className="bg-orange-100 border-2 border-orange-200 text-orange-700 p-5 rounded-2xl font-black text-center flex items-center justify-center gap-3 animate-pulse">
+                <span className="text-2xl">⚠️</span> URGENT CARE RECOMMENDED
+              </div>
+            )}
+
+            {/* Assessment Summary */}
+            <section className={`p-6 rounded-3xl border-2 relative ${activeTab === 'health' ? 'bg-blue-50/50 border-blue-100' : 'bg-purple-50/50 border-purple-100'}`}>
+              <h3 className="font-black text-gray-800 text-xs uppercase tracking-widest mb-3 opacity-60">AI Clinical Summary</h3>
+              <p className="text-gray-800 font-medium text-lg leading-snug italic">"{result.summary}"</p>
+              
+              {/* --- LATENCY DISPLAY --- */}
+              {latency !== null && (
+                <div className="mt-4 flex items-center gap-2">
+          <span className="text-[10px] font-black text-gray-400 uppercase tracking-tighter">
+  ⚡ {latency > 1000 
+      ? `Analyzed in ${(latency / 1000).toFixed(2)}s` 
+      : `Analyzed in ${latency.toFixed(2)}ms`}
+</span>
+                  {latency < 100 && (
+                    <span className="text-[10px] font-black text-emerald-600 bg-emerald-100 px-2 py-0.5 rounded-md uppercase animate-bounce">
+                      Cached
+                    </span>
+                  )}
+                </div>
+              )}
+            </section>
+
+            {/* Grid Information */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+              <div className="bg-gray-50 p-5 rounded-3xl border border-gray-100 shadow-sm">
+                <h4 className="font-bold text-gray-400 text-[10px] uppercase tracking-widest mb-4">Possible Conditions</h4>
+                <div className="flex flex-wrap gap-2">
+                  {result.possible_conditions?.map((item, i) => (
+                    <span key={i} className="text-[10px] bg-white border border-gray-200 px-3 py-1.5 rounded-full text-gray-700 font-black">{item}</span>
+                  ))}
+                </div>
+              </div>
+
+              <div className="bg-gray-50 p-5 rounded-3xl border border-gray-100 shadow-sm flex flex-col items-center text-center">
+                <h4 className="font-bold text-gray-400 text-[10px] uppercase tracking-widest mb-2">Primary Specialist</h4>
+                <p className="text-2xl font-black text-gray-800 tracking-tighter">{result.specialist}</p>
+                <div className="mt-2 text-[10px] font-black text-gray-400">PRIORITY: <span className={result.urgency === 'High' ? 'text-red-500' : 'text-yellow-600'}>{result.urgency.toUpperCase()}</span></div>
+              </div>
+            </div>
+
+            {/* Advice Section */}
+            {result.advice && result.advice.length > 0 && (
+              <div className="bg-emerald-50 border-2 border-emerald-100 p-6 rounded-3xl">
+                <h4 className="text-emerald-800 font-black text-xs uppercase tracking-widest mb-3">Next Steps & Advice</h4>
+                <ul className="space-y-2">
+                  {result.advice.map((a, i) => (
+                    <li key={i} className="text-emerald-900 text-sm font-medium flex gap-2"><span className="text-emerald-400">•</span> {a}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {/* Step 2: Locate Button */}
+            <div className="pt-4 border-t-2 border-gray-50">
+                <button 
+                  onClick={locateSpecialist} 
+                  disabled={searchLoading} 
+                  className={`w-full text-white py-5 rounded-3xl font-black transition-all shadow-xl active:scale-95 ${activeTab === 'health' ? 'bg-gray-900 hover:bg-blue-600' : 'bg-gray-900 hover:bg-purple-600'}`}
+                >
+                {searchLoading ? "FILTERING NEARBY SPECIALISTS..." : `📍 LOCATE NEARBY ${result.specialist.toUpperCase()}`}
+                </button>
+                {locError && <p className="text-orange-600 text-[10px] font-black text-center mt-3 p-3 bg-orange-50 rounded-2xl border border-orange-100">{locError}</p>}
+            </div>
+
+            {/* Facility Cards */}
+            <div className="space-y-4">
+              {hospitals.map((h, i) => (
+                <div key={i} className="p-5 border-2 border-gray-50 rounded-3xl bg-white flex justify-between items-center shadow-sm hover:border-blue-200 transition-all">
+                  <div className="max-w-[70%]">
+                    <p className="font-black text-gray-800 text-sm mb-1">{h.name}</p>
+                    <p className="text-[10px] text-gray-400 font-bold truncate mb-3">{h.address}</p>
+                    <div className="flex gap-2">
+                      <span className="text-[9px] font-black bg-blue-50 text-blue-700 px-3 py-1 rounded-full border border-blue-100 uppercase">
+                        {h.distance_km > 0 ? `${h.distance_km} KM AWAY` : "MAP LOCATION"}
+                      </span>
+                      {h.rating > 0 && <span className="text-[9px] font-black bg-yellow-50 text-yellow-700 px-3 py-1 rounded-full border border-yellow-100">⭐ {h.rating}</span>}
+                    </div>
+                  </div>
+                  <a href={h.maps_url} target="_blank" rel="noreferrer" className="bg-gray-900 text-white p-4 rounded-2xl hover:bg-blue-600 transition-all text-xs font-black">GO</a>
+                </div>
+              ))}
+            </div>
+
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+export default App;

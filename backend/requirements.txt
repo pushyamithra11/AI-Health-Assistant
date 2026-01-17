@@ -1,0 +1,13 @@
+fastapi
+uvicorn
+pydantic
+python-multipart
+cors
+httpx
+vertexai
+python-dotenv
+gunicorn
+redis
+google-cloud-aiplatform
+passlib[bcrypt]
+email-validator

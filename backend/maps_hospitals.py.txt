@@ -1,0 +1,84 @@
+import os
+import httpx
+import logging
+import re
+from dotenv import load_dotenv
+
+load_dotenv()
+logger = logging.getLogger(__name__)
+
+GOOGLE_MAPS_API_KEY = os.getenv("GOOGLE_MAPS_API_KEY")
+SEARCH_URL = "https://maps.googleapis.com/maps/api/place/textsearch/json"
+
+http_client = httpx.AsyncClient(
+    timeout=httpx.Timeout(20.0),
+    limits=httpx.Limits(max_connections=100, max_keepalive_connections=20)
+)
+
+async def get_ip_location():
+    try:
+        response = await http_client.get("https://ipapi.co/json/", timeout=5.0)
+        if response.status_code == 200:
+            data = response.json()
+            return float(data.get("latitude", 0)), float(data.get("longitude", 0))
+    except Exception: return 0.0, 0.0
+
+async def get_nearby_hospitals(lat: float, lon: float, specialist: str, urgency: str):
+    if not GOOGLE_MAPS_API_KEY: return []
+
+    # Clean the input
+    clean_spec = re.sub(r"[\[\]']", "", str(specialist))
+    urg_lower = str(urgency).lower()
+    
+    # Context-Aware Search Intent
+    mental_keywords = ["psych", "therapy", "mental", "wellness", "counseling"]
+    is_mental = any(k in clean_spec.lower() for k in mental_keywords)
+    
+    if is_mental:
+        intent = "Crisis Support Center" if urg_lower == "high" else "Mental Health Clinic"
+    else:
+        intent = "Emergency Hospital" if urg_lower == "high" else "Specialist Center"
+    
+    params = {
+        "query": f"{clean_spec} {intent}",
+        "location": f"{lat},{lon}",
+        "radius": 12000, 
+        "opennow": True, # Clinical Safety
+        "key": GOOGLE_MAPS_API_KEY
+    }
+
+    try:
+        response = await http_client.get(SEARCH_URL, params=params)
+        data = response.json()
+        
+        # Specialty Conflict Filter
+        spec_lower = clean_spec.lower()
+        conflicts = ["orthopedic", "dental", "dentist", "eye", "skin", "pediatric"]
+        forbidden = [s for s in conflicts if s not in spec_lower]
+
+        hospitals = []
+        for place in data.get("results", []):
+            name = place.get("name", "").lower()
+            rating = float(place.get("rating", 0.0))
+            if rating < 3.0 and rating != 0: continue # Quality control
+
+            has_conflict = any(word in name for word in forbidden)
+            is_gen = any(word in name for word in ["hospital", "medical center", "general"])
+            
+            if has_conflict and not is_gen: continue
+
+            hospitals.append({
+                "name": place.get("name"),
+                "lat": place["geometry"]["location"]["lat"],
+                "lon": place["geometry"]["location"]["lng"],
+                "address": place.get("formatted_address", "Address unavailable"),
+                "rating": rating,
+                "maps_url": f"https://www.google.com/maps/search/?api=1&query={place.get('name').replace(' ', '+')}&query_place_id={place.get('place_id')}",
+                "distance_km": 0.0,
+                "available_specialist": clean_spec
+            })
+            
+        return hospitals[:8]
+    except Exception as e:
+        logger.error(f"Maps Service Error: {e}")
+        return []
