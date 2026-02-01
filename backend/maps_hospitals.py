@@ -1,153 +1,86 @@
-
-
-# import os
-# import httpx
-# import logging
-# import re
-# from utils import calculate_distance
-
-# # Global client
-# http_client = httpx.AsyncClient(
-#     timeout=httpx.Timeout(20.0),
-#     limits=httpx.Limits(max_connections=100, max_keepalive_connections=20)
-# )
-
-# GOOGLE_MAPS_API_KEY = os.getenv("GOOGLE_MAPS_API_KEY")
-
-# async def get_ip_location():
-#     try:
-#         response = await http_client.get("https://ipapi.co/json/", timeout=5.0)
-#         if response.status_code == 200:
-#             data = response.json()
-#             return float(data.get("latitude", 0)), float(data.get("longitude", 0))
-#     except Exception:
-#         pass
-#     return 12.9716, 77.5946 # Default fallback
-
-# async def get_nearby_hospitals(lat: float, lon: float, specialist: str, urgency: str):
-#     if not GOOGLE_MAPS_API_KEY:
-#         return []
-    
-#     # CRITICAL: If the UI sends valid coordinates, do NOT use IP location
-#     # Use IP location only if coordinates are truly 0.0
-#     current_lat, current_lon = float(lat), float(lon)
-#     if current_lat == 0 or current_lon == 0:
-#         current_lat, current_lon = await get_ip_location()
-
-#     clean_spec = re.sub(r"[\[\]']", "", str(specialist))
-#     query = f"{clean_spec} Hospital" if urgency.lower() == "high" else f"{clean_spec} Clinic"
-    
-#     params = {
-#         "query": query,
-#         "location": f"{current_lat},{current_lon}",
-#         "radius": 15000, # 15km
-#         "key": GOOGLE_MAPS_API_KEY
-#     }
-
-#     try:
-#         resp = await http_client.get("https://maps.googleapis.com/maps/api/place/textsearch/json", params=params)
-#         data = resp.json()
-        
-#         results = []
-#         for p in data.get("results", []):
-#             p_lat = p["geometry"]["location"]["lat"]
-#             p_lon = p["geometry"]["location"]["lng"]
-            
-#             # Calculate distance using the coordinates used for the search
-#             dist = calculate_distance(current_lat, current_lon, p_lat, p_lon)
-            
-#             # FIXED DIRECTIONS URL: Official Google format
-#             # https://www.google.com/maps/dir/?api=1&origin=LAT,LON&destination=LAT,LON
-#             m_url = f"https://www.google.com/maps/dir/?api=1&origin={current_lat},{current_lon}&destination={p_lat},{p_lon}"
-            
-#             results.append({
-#                 "name": p.get("name"),
-#                 "lat": p_lat,
-#                 "lon": p_lon,
-#                 "address": p.get("formatted_address", "No address"),
-#                 "rating": float(p.get("rating", 0.0)),
-#                 "maps_url": m_url,
-#                 "distance_km": dist,
-#                 "available_specialist": clean_spec 
-#             })
-        
-#         return sorted(results, key=lambda x: x["distance_km"])[:8]
-#     except Exception as e:
-#         print(f"Maps API Error: {e}")
-#         return []
+ 
 
 import os
 import httpx
-import logging
 import re
+import asyncio  
 from utils import calculate_distance
 
-# Global client
-http_client = httpx.AsyncClient(
-    timeout=httpx.Timeout(20.0),
-    limits=httpx.Limits(max_connections=100, max_keepalive_connections=20)
-)
-
+http_client = httpx.AsyncClient(timeout=httpx.Timeout(20.0))
 GOOGLE_MAPS_API_KEY = os.getenv("GOOGLE_MAPS_API_KEY")
 
-async def get_ip_location():
+async def get_real_driving_distance(origin_lat, origin_lon, dest_lat, dest_lon):
+    """Calculates road distance via Google Distance Matrix API."""
+    if not GOOGLE_MAPS_API_KEY: return calculate_distance(origin_lat, origin_lon, dest_lat, dest_lon)
     try:
-        response = await http_client.get("https://ipapi.co/json/", timeout=5.0)
-        if response.status_code == 200:
-            data = response.json()
-            return float(data.get("latitude", 0)), float(data.get("longitude", 0))
-    except Exception:
-        pass
-    return 12.9716, 77.5946 # Default fallback (Bangalore)
+        url = "https://maps.googleapis.com/maps/api/distancematrix/json"
+        params = {
+            "origins": f"{origin_lat},{origin_lon}",
+            "destinations": f"{dest_lat},{dest_lon}",
+            "key": GOOGLE_MAPS_API_KEY
+        }
+        resp = await http_client.get(url, params=params)
+        data = resp.json()
+        if data["status"] == "OK" and data["rows"][0]["elements"][0]["status"] == "OK":
+            return round(data["rows"][0]["elements"][0]["distance"]["value"] / 1000, 2)
+    except: pass
+    return calculate_distance(origin_lat, origin_lon, dest_lat, dest_lon)
 
 async def get_nearby_hospitals(lat: float, lon: float, specialist: str, urgency: str):
-    if not GOOGLE_MAPS_API_KEY:
-        return []
+    if not GOOGLE_MAPS_API_KEY: return []
     
-    # Priority: If coordinates are provided by the browser (not 0), use them.
-    # Otherwise, fallback to IP.
-    current_lat, current_lon = float(lat), float(lon)
-    if current_lat == 0 or current_lon == 0:
-        current_lat, current_lon = await get_ip_location()
+    # 1. Capture Dynamic Location
+    curr_lat, curr_lon = lat, lon
+    if curr_lat == 0 or curr_lon == 0:
+        # Precision Fallback for VIT Chennai area
+        curr_lat, curr_lon = 12.8407, 80.1534 
 
     clean_spec = re.sub(r"[\[\]']", "", str(specialist))
-    query = f"{clean_spec} Hospital" if urgency.lower() == "high" else f"{clean_spec} Clinic"
     
+    # 2. Symptom-Based Logic
+  
+    if urgency.lower() == "high":
+        search_query = f"Emergency {clean_spec} Hospital"
+        search_type = "hospital"
+    else:
+        search_query = f"{clean_spec} Medical Clinic"
+        search_type = "doctor"
+
     params = {
-        "query": query,
-        "location": f"{current_lat},{current_lon}",
-        "radius": 15000, # 15km search radius
+        "location": f"{curr_lat},{curr_lon}",
+        "keyword": search_query,
+        "type": search_type,
+        "rankby": "distance", 
         "key": GOOGLE_MAPS_API_KEY
     }
 
     try:
-        resp = await http_client.get("https://maps.googleapis.com/maps/api/place/textsearch/json", params=params)
-        data = resp.json()
-        
+        endpoint = "https://maps.googleapis.com/maps/api/place/nearbysearch/json"
+        resp = await http_client.get(endpoint, params=params)
+        places = resp.json().get("results", [])
+
+        # Parallel distance calculation for speed
+        tasks = [get_real_driving_distance(curr_lat, curr_lon, p["geometry"]["location"]["lat"], p["geometry"]["location"]["lng"]) for p in places[:10]]
+        distances = await asyncio.gather(*tasks)
+
         results = []
-        for p in data.get("results", []):
-            p_lat = p["geometry"]["location"]["lat"]
-            p_lon = p["geometry"]["location"]["lng"]
+        for i, p in enumerate(places[:10]):
+            p_lat, p_lon = p["geometry"]["location"]["lat"], p["geometry"]["location"]["lng"]
             
-            # Distance is now calculated from the SAME source used in the query
-            dist = calculate_distance(current_lat, current_lon, p_lat, p_lon)
-            
-            # Universal Google Maps Direction Link
-            m_url = f"https://www.google.com/maps/dir/?api=1&origin={current_lat},{current_lon}&destination={p_lat},{p_lon}&travelmode=driving"
+          
+            m_url = f"https://www.google.com/maps/dir/?api=1&origin={curr_lat},{curr_lon}&destination={p_lat},{p_lon}&travelmode=driving"
             
             results.append({
                 "name": p.get("name"),
-                "lat": p_lat,
-                "lon": p_lon,
-                "address": p.get("formatted_address", "No address"),
+                "lat": p_lat, "lon": p_lon,
+                "address": p.get("vicinity", "Nearby"),
                 "rating": float(p.get("rating", 0.0)),
                 "maps_url": m_url,
-                "distance_km": dist,
+                "distance_km": distances[i],
                 "available_specialist": clean_spec 
             })
-        
-        # Closest 8 results
+            
         return sorted(results, key=lambda x: x["distance_km"])[:8]
     except Exception as e:
-        print(f"Maps API Error: {e}")
+        print(f"Error: {e}")
         return []

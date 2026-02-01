@@ -1,31 +1,6 @@
-# import os
-# import logging
-# import redis
-# import vertexai
-# from vertexai.generative_models import GenerativeModel
-# from dotenv import load_dotenv  # <--- ADD THIS
 
-# # Load the variables from .env into the system environment
-# load_dotenv() 
 
-# # 1. Initialize Logging
-# logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-# logger = logging.getLogger(__name__)
 
-# # 2. Redis Connection
-# # Professional tip: Also move these to .env later
-# cache = redis.Redis(host='127.0.0.1', port=6379, db=0, decode_responses=True, socket_connect_timeout=2)
-
-# # AI Setup
-# PROJECT_ID = os.getenv("GCP_PROJECT_ID")
-# # Ensure you use the variable from .env for location too!
-# LOCATION = os.getenv("GCP_LOCATION", "us-central1") 
-
-# if not PROJECT_ID:
-#     logger.error("❌ GCP_PROJECT_ID not found in environment variables!")
-
-# vertexai.init(project=PROJECT_ID, location=LOCATION)
-# model = GenerativeModel("gemini-2.0-flash")
 
 import os
 import logging

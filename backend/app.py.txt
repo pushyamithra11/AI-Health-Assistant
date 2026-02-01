@@ -1,196 +1,101 @@
 
-import os
-import logging
+import time
 import json
-import math
-import re
-import hashlib
-import redis
-import time  # <--- Added for latency measurement
-from typing import List
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Depends 
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, Field
-import vertexai
-from vertexai.generative_models import GenerativeModel
-
-# 1. Initialize Logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-logger = logging.getLogger(__name__)
-
-from maps_hospitals import get_nearby_hospitals, http_client, get_ip_location
+from config import logger, cache, model
+from models import HospitalRequest, FinalResponse
+from utils import clean_ai_json, generate_cache_key
+from maps_hospitals import get_nearby_hospitals, http_client
+from auth import router as auth_router, get_current_user 
 
 app = FastAPI(title="SmartHealth AI Backend")
 
-# 2. Redis Connection (Standard Local-to-Docker setup)
-try:
-    cache = redis.Redis(host='127.0.0.1', port=6379, db=0, decode_responses=True, socket_connect_timeout=2)
-    cache.ping() 
-    logger.info("✅ Redis Active - High Performance Mode")
-except Exception as e:
-    logger.warning(f"❌ Redis not found. Caching disabled. Error: {e}")
-    cache = None
 
-app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"], 
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
-@app.on_event("shutdown")
-async def shutdown_event():
-    await http_client.aclose()
+# Authentication Router (Signup/Login)
+app.include_router(auth_router)
 
-# AI Setup
-PROJECT_ID = os.getenv("GCP_PROJECT_ID")
-vertexai.init(project=PROJECT_ID, location="us-central1")
-model = GenerativeModel("gemini-2.0-flash")
-
-# --- Models ---
-class TriageData(BaseModel):
-    urgency: str
-    summary: str 
-    possible_conditions: List[str]
-    advice: List[str]
-    specialist: str
-    emergency: bool
-
-class HospitalResponse(BaseModel):
-    name: str
-    lat: float
-    lon: float
-    address: str
-    rating: float
-    maps_url: str
-    distance_km: float
-
-class FinalResponse(BaseModel):
-    triage: TriageData
-    hospitals: List[HospitalResponse]
-    latency_ms: float = 0.0  # <--- Added to track speed
-
-class HospitalRequest(BaseModel):
-    latitude: float
-    longitude: float
-    symptoms: str
-
-# --- Helper Functions ---
-def calculate_distance(lat1, lon1, lat2, lon2):
-    if lat1 == 0 or lat2 == 0: return 0.0
-    R = 6371
-    d_lat, d_lon = math.radians(lat2 - lat1), math.radians(lon2 - lon1)
-    a = math.sin(d_lat/2)**2 + math.cos(math.radians(lat1))*math.cos(math.radians(lat2))*math.sin(d_lon/2)**2
-    c = 2 * math.atan2(math.sqrt(a), math.sqrt(1-a))
-    return round(R * c, 2)
-
-def clean_ai_json(text: str):
-    try:
-        cleaned = re.sub(r"```json\s?|\s?```", "", text).strip()
-        data = json.loads(cleaned[cleaned.find('{'):cleaned.rfind('}')+1])
-        if "specialist" in data and isinstance(data["specialist"], list):
-            data["specialist"] = data["specialist"][0] if data["specialist"] else "General Physician"
-        return data
-    except Exception: return None
-
-# --- Main Logic ---
 async def process_health_request(request: HospitalRequest, is_mental: bool):
-    start_time = time.perf_counter()  # <--- Start Timer
+    start_time = time.perf_counter()
     try:
-        # 1. Performance: Semantic Cache Check
-        symptom_hash = hashlib.md5(request.symptoms.lower().strip().encode()).hexdigest()
-        cache_key = f"triage_{symptom_hash}_{round(request.latitude, 2)}"
+        lat, lon = float(request.latitude), float(request.longitude)
         
+        # 1. Cache Check
+        cache_key = generate_cache_key(request.symptoms, lat)
         if cache:
             try:
                 cached_res = cache.get(cache_key)
                 if cached_res:
-                    logger.info("🚀 Serving result from Redis Cache")
                     data = json.loads(cached_res)
-                    # Add latency for the cache hit
                     data["latency_ms"] = round((time.perf_counter() - start_time) * 1000, 2)
                     return data
             except Exception as e:
-                logger.error(f"Cache Read Error: {e}")
+                logger.error(f"Cache Error: {e}")
 
-        # 2. AI Role-Based Prompting
+        # 2. AI Triage Generation
         role = "Mental Health Expert" if is_mental else "Medical Triage Doctor"
-        spec_requirement = "Psychiatrist or Clinical Psychologist" if is_mental else "Single Medical Specialist"
-
-        prompt = f"""
-        Act as a {role}. Analyze: {request.symptoms}.
-        Return JSON ONLY. The "specialist" MUST be a {spec_requirement}. Do not use lists.
-        {{
-            "urgency": "High/Moderate/Low",
-            "summary": "...",
-            "possible_conditions": [],
-            "advice": [],
-            "specialist": "...", 
-            "emergency": bool
-        }}
-        """
+        prompt = (
+            f"Act as a {role}. Analyze these symptoms: {request.symptoms}. "
+            "Return JSON ONLY with: urgency, summary, possible_conditions (list), "
+            "advice (list), specialist (string), and emergency (bool)."
+        )
         
-        logger.info(f"Generating AI Triage for: {request.symptoms[:30]}...")
-        triage_dict = None
-        for _ in range(2):
-            res = await model.generate_content_async(prompt)
-            triage_dict = clean_ai_json(res.text)
-            if triage_dict: break
+        if not model:
+            raise HTTPException(status_code=500, detail="AI Model not initialized")
+            
+        res = await model.generate_content_async(prompt)
+        triage_dict = clean_ai_json(res.text)
         
-        if not triage_dict: 
-            raise ValueError("AI failed to provide a valid triage response")
+        if not triage_dict:
+            raise ValueError("AI failed to generate valid JSON")
 
-        if is_mental and not any(k in str(triage_dict.get("specialist", "")).lower() for k in ["psych", "therapy", "counsel"]):
-            triage_dict["specialist"] = "Psychiatrist"
-
-        # 3. Hospital Search
-        hospitals = []
-        lat, lon = request.latitude, request.longitude
-        if lat == 0 and lon == 0: 
-            lat, lon = await get_ip_location()
-            
-        if lat != 0:
-            spec = str(triage_dict.get("specialist", "General Physician"))
-            urg = str(triage_dict.get("urgency", "Moderate"))
-            raw_hospitals = await get_nearby_hospitals(lat, lon, spec, urg)
-            
-            for h in raw_hospitals:
-                h["distance_km"] = calculate_distance(lat, lon, h["lat"], h["lon"])
-                hospitals.append(h)
-            hospitals.sort(key=lambda x: x["distance_km"])
+        # 3. Hospital Search (Logic handles IP fallback internally if 0,0)
+        spec = str(triage_dict.get("specialist", "General Physician"))
+        urg = str(triage_dict.get("urgency", "Moderate"))
+        hospitals = await get_nearby_hospitals(lat, lon, spec, urg)
 
         # 4. Final Response Construction
-        duration = round((time.perf_counter() - start_time) * 1000, 2)
-        final_response = {
+        duration_ms = (time.perf_counter() - start_time) * 1000
+        final_data = {
             "triage": triage_dict, 
             "hospitals": hospitals,
-            "latency_ms": duration  # <--- Send total time back
+            "latency_ms": round(duration_ms, 2)
         }
         
-        # 5. Save to Redis
-        # 5. Save to Redis
         if cache:
-            try: 
-                # Changed 86400 (24h) to 3600 (1h) for better data accuracy
-                # This ensures hospital "Open Now" status stays fresh
-                cache.setex(cache_key, 3600, json.dumps(final_response)) 
-                logger.info(f"💾 Result cached for 1 hour (Latency: {duration}ms)")
-            except Exception as e:
-                logger.error(f"Cache Write Error: {e}")
+            cache.setex(cache_key, 3600, json.dumps(final_data))
 
-        return final_response
+        return final_data
 
     except Exception as e:
-        logger.error(f"Endpoint Error: {str(e)}")
+        logger.error(f"CRASH: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
-# --- Endpoints ---
 @app.get("/health")
 async def health_check():
-    return {
-        "status": "online",
-        "redis_connected": cache is not None
-    }
+    return {"status": "online", "redis": "connected" if cache else "degraded"}
+
+
+
 
 @app.post("/api/hospitals/nearby", response_model=FinalResponse)
-async def physical_triage_endpoint(request: HospitalRequest):
+async def physical_triage_endpoint(request: HospitalRequest, username: str = Depends(get_current_user)):
+    logger.info(f"Authorized Request from {username} for physical triage")
     return await process_health_request(request, False)
 
 @app.post("/api/mental-health/analyze", response_model=FinalResponse)
-async def mental_triage_endpoint(request: HospitalRequest):
+async def mental_triage_endpoint(request: HospitalRequest, username: str = Depends(get_current_user)):
+    logger.info(f"Authorized Request from {username} for mental health triage")
     return await process_health_request(request, True)
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    await http_client.aclose()

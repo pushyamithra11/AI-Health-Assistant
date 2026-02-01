@@ -1,38 +1,6 @@
 
 
 
-// import React from 'react';
-
-// const HospitalCard = ({ hospital }) => {
-//   return (
-//     <div className="py-4 border-b border-gray-100 flex justify-between items-center group">
-//       <div className="flex-1 min-w-0">
-//         <div className="flex items-center gap-2 mb-1">
-//           <p className="font-bold text-sm text-gray-900 truncate uppercase tracking-tight">
-//             {hospital.name}
-//           </p>
-//           {hospital.rating > 0 && (
-//             <span className="text-[10px] font-bold text-orange-400">★{hospital.rating}</span>
-//           )}
-//         </div>
-//         <p className="text-xs text-gray-400 truncate tracking-tight">{hospital.address}</p>
-//         <p className="text-[10px] font-black text-blue-500 mt-1 uppercase">
-//           {hospital.distance_km > 0 ? `${hospital.distance_km} KM AWAY` : "View on Map"}
-//         </p>
-//       </div>
-//       <a 
-//         href={hospital.maps_url} 
-//         target="_blank" 
-//         rel="noreferrer" 
-//         className="ml-4 border border-gray-300 px-4 py-1.5 text-xs font-bold hover:bg-gray-50 transition-colors rounded-sm"
-//       >
-//         Directions
-//       </a>
-//     </div>
-//   );
-// };
-
-// export default HospitalCard;
 
 import React from 'react';
 

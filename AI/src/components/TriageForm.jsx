@@ -1,3 +1,5 @@
+
+
 import React from 'react';
 
 const TriageForm = ({ symptoms, setSymptoms, activeTab, loading, onAnalyze }) => {
