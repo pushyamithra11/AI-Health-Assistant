@@ -8,9 +8,10 @@ from models import HospitalRequest, FinalResponse
 from utils import clean_ai_json, generate_cache_key
 from maps_hospitals import get_nearby_hospitals, http_client
 from auth import router as auth_router, get_current_user 
+from fastapi.security import OAuth2PasswordBearer
 
 app = FastAPI(title="SmartHealth AI Backend")
-
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/login")
 
 app.add_middleware(
     CORSMiddleware,
