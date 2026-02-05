@@ -8,7 +8,7 @@ import TriageForm from "./components/TriageForm";
 import AssessmentResult from "./components/AssessmentResult";
 import HospitalCard from "./components/HospitalCard";
 
-const API_BASE_URL = "http://127.0.0.1:8000/api";
+const API_BASE_URL = "http://43.205.211.121:8000/api";
 
 const App = () => {
 const [user, setUser] = useState(localStorage.getItem("username") || null);

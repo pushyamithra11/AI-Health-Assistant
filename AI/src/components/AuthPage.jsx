@@ -29,7 +29,7 @@ const AuthPage = ({ onLoginSuccess }) => {
     : { username: formData.username, email: formData.email, password: formData.password };
 
   try {
-    const response = await axios.post(`http://127.0.0.1:8000${endpoint}`, payload);
+    const response = await axios.post(`http://43.205.211.121:8000${endpoint}`, payload);
     
     if (isLogin) {
       // 1. SAVE THE JWT TOKEN
