@@ -11,7 +11,7 @@ from auth import router as auth_router, get_current_user
 from fastapi.security import OAuth2PasswordBearer
 
 app = FastAPI(title="SmartHealth AI Backend")
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/login")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
 
 app.add_middleware(
     CORSMiddleware,

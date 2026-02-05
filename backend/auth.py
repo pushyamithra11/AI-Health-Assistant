@@ -8,7 +8,7 @@ from pydantic import BaseModel, EmailStr
 from passlib.context import CryptContext
 from tinydb import TinyDB, Query
 from config import logger
-
+from fastapi.security import OAuth2PasswordRequestForm
 router = APIRouter(prefix="/api/auth", tags=["Authentication"])
 pwd_context = CryptContext(schemes=["pbkdf2_sha256"], deprecated="auto")
 
@@ -67,24 +67,25 @@ async def signup(user: UserSignup):
     return {"message": "User created successfully", "username": user.username}
 
 @router.post("/login")
-async def login(user: UserLogin):
-    result = db.search(UserTable.username == user.username)
+async def login(form_data: OAuth2PasswordRequestForm = Depends()):
+    # 1. Search for user in TinyDB
+    result = db.search(UserTable.username == form_data.username)
+    
     if not result:
         raise HTTPException(status_code=401, detail="Invalid credentials")
     
     db_user = result[0]
-    if not pwd_context.verify(user.password, db_user["password"]):
+    
+    # 2. Verify password
+    if not pwd_context.verify(form_data.password, db_user["password"]):
         raise HTTPException(status_code=401, detail="Invalid credentials")
     
-    # Generate the JWT
+    # 3. Generate the JWT
     token = create_access_token(db_user["username"])
     
+    # Swagger UI expects "access_token" and "token_type"
     return {
-        "message": "Login successful",
-        "access_token": token,
+        "access_token": token, 
         "token_type": "bearer",
-        "user": {
-            "username": db_user["username"],
-            "email": db_user["email"]
-        }
+        "username": db_user["username"]
     }
