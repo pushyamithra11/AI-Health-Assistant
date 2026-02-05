@@ -87,8 +87,16 @@ async def health_check():
 
 
 
+# @app.post("/api/hospitals/nearby", response_model=FinalResponse)
+# async def physical_triage_endpoint(request: HospitalRequest, username: str = Depends(get_current_user)):
+#     logger.info(f"Authorized Request from {username} for physical triage")
+#     return await process_health_request(request, False)
 @app.post("/api/hospitals/nearby", response_model=FinalResponse)
-async def physical_triage_endpoint(request: HospitalRequest, username: str = Depends(get_current_user)):
+async def physical_triage_endpoint(
+    request: HospitalRequest, 
+    username: str = Depends(get_current_user),
+    _token: str = Depends(oauth2_scheme)  # <--- Add this dummy line
+):
     logger.info(f"Authorized Request from {username} for physical triage")
     return await process_health_request(request, False)
 
