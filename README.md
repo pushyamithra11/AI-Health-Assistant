@@ -1,82 +1,70 @@
-🏥 AI Smart Healthcare Assistant:
+🩺 SmartHealth – AI Healthcare Assistant
+SmartHealth is a full-stack AI-powered healthcare assistant that provides preliminary physical and mental health assessments, along with nearby hospital recommendations using real-time location data.
 
-An AI-powered healthcare platform that provides intelligent disease prediction, triage, and nearby hospital discovery. Built with a FastAPI backend and a modern frontend, leveraging Google Vertex AI (Gemini) for medical insights.
+⚠️ This project is intended for educational and assistive purposes only and does not replace professional medical advice.
 
-Live Demo
+🚀 Features
+🤖 AI-driven health assessment using Gemini AI
 
+🧠 Mental wellness analysis
+
+🩺 Physical symptom triage
+
+📍 Nearby hospitals & clinics using OpenStreetMap
+
+🗺 Interactive maps with Leaflet
+
+🔐 Secure authentication (JWT-based)
+
+⚡ Fast & responsive UI (React + Tailwind)
+
+🌐 Deployment-ready architecture
+
+🛠 Tech Stack
+Frontend
+
+React (Vite)
+
+Tailwind CSS
+
+Axios
+
+Leaflet + OpenStreetMap
+
+Backend
+
+FastAPI
+
+Gemini AI (Google Generative AI)
+
+Python
+
+JWT Authentication
+
+Project Structure
+
+AI-Health-Assistant/ │ ├── AI/ # Frontend (React + Vite) │ ├── public/ │ │ └── logo.png │ ├── src/ │ │ ├── components/ │ │ ├── App.jsx │ │ └── main.jsx │ ├── index.html │ └── package.json │ ├── backend/ # Backend (FastAPI) │ ├── app.py │ ├── ai_service.py │ ├── maps_service.py │ ├── requirements.txt │ └── .env.example │ ├── .gitignore └── README.md
+
+⚙️ Environment Variables
+Frontend(AI/.env)
+VITE_BACKEND_URL=http://localhost:8000
+
+Backend (backend/.env)
+env: GEMINI_API_KEY=your_api_key_here
+
+▶️ Running the Project Locally
+1️⃣ Backend Setup
+cd backend pip install -r requirements.txt uvicorn app:app --reload
+
+Backend runs at:
+http://localhost:8000
+
+2️⃣ Frontend Setup
+cd AI npm install npm run dev
+
+Frontend runs at:
+http://localhost:5173
+
+Live Link:
 https://smart-healthcare-assistant-two.vercel.app/
-
-✨ Features:
-
-AI Physical Triage: Input symptoms and receive instant AI-driven health guidance.
-
-Hospital Locator: Find the nearest healthcare facilities based on your location.
-
-Secure Authentication: JWT-based user registration and login system.
-
-Interactive Documentation: Fully documented API via Swagger UI.
-
-Tech Stack:
-
-Frontend: React/Next.js (Deployed on Vercel)
-
-Backend: FastAPI, Python (Deployed on Render)
-
-AI Model: Google Vertex AI (Gemini 1.5 Pro/Flash)
-
-Database: TinyDB / JSON-based storage
-
-Security: OAuth2 with Password hashing (Passlib)
-
-Deployment: Vercel(frontend) and Render(backend)
-
-⚙️ Environment Variables:
-
-To run this project, you will need to add the following environment variables to your Render/Vercel dashboards:
-
-Backend (Render):                               
-
-GOOGLE_APPLICATION_CREDENTIALS_JSON     -  	The full content of your Google Service Account JSON key.
-
-PROJECT_ID	                            -    Your Google Cloud Project ID.
-
-SECRET_KEY	                            -    A long random string for JWT encryption.
-
-ALGORITHM	                              -    HS256
-
-🚀 Local Setup:
-
-1. Clone the Repository
-
-Bash
-
-git clone https://github.com/your-username/AI-Health-Assistant.git
-
-cd AI-Health-Assistant
-
-2. Backend Setup
-   
-Bash
-
-cd backend
-
-python -m venv venv
-
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-
-pip install -r requirements.txt
-
-python -m uvicorn app:app --reload
-
-3. Frontend Setup
-   
-Bash
-
-cd frontend
-
-npm install
-
-npm run dev
-
-
 
